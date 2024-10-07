@@ -9,8 +9,8 @@ import "./Verifier.sol";
 
 interface IVerifier {
     function verify(
-        bytes memory zkProof,
-        bytes32 documentHash
+        address memory user
+        //bytes32 documentHash
     ) external view returns (bool);
 }
 
@@ -25,6 +25,7 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
     uint256 public constant KYC_VALIDITY_PERIOD = 365 days;
 
     IVerifier public verifier;
+
     struct Property {
         uint256 tokenId;
         address seller;
@@ -39,7 +40,7 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         uint256 indexed tokenId,
         uint256 price
     );
-    event KYCVerified(address indexed user, uint256 expirationTime);
+    event KYCVerified(address indexed user);
     event Withdrawal(address indexed to, uint256 amount);
     event ListingFeeUpdated(uint256 newFee);
     event PropertyListed(
@@ -98,17 +99,6 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         kycVerified[_user] = true;
     }
 
-    function validateDocument(
-        bytes memory zkProof,
-        bytes32 documentHash
-    ) public view returns (bool) {
-        require(
-            verifier.verify(zkProof, documentHash),
-            "Invalid document proof"
-        );
-        return true;
-    }
-
     // 2. Create a new token and list it
     function createToken(string memory tokenURI, uint256 price, string memory ipfsHash) external isKYCVerified {
         tokenIdCounter++;
@@ -128,11 +118,11 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         _setTokenURI(newTokenId, newTokenURI); // Assign new token URI
     }
 
-    function uploadDocument(uint256 tokenId,bytes32 documentHash,bytes memory zkProof) external isKYCVerified {
-        // Verify the document using zk-SNARK proof
-        require(verifier.verify(zkProof, documentHash), "Invalid document proof");
-        documentHashes[tokenId] = documentHash; // Store document hash on-chain
-    }
+    // function uploadDocument(uint256 tokenId,bytes32 documentHash,bytes memory zkProof) external isKYCVerified {
+    //     // Verify the document using zk-SNARK proof
+    //     require(verifier.verify(user), "Invalid document proof");
+    //     documentHashes[tokenId] = documentHash; // Store document hash on-chain
+    // }
 
     function invalidateCompromisedNFT(uint256 tokenId) external {
         require(compromisedNFTs[tokenId], "NFT is not compromised");

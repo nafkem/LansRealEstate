@@ -9,7 +9,7 @@ import "./Verifier.sol";
 
 interface IVerifier {
     function verify(
-        address memory user
+        address user
         //bytes32 documentHash
     ) external view returns (bool);
 }

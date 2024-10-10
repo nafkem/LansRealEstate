@@ -10,8 +10,13 @@ import "./Verifier.sol";
 interface IVerifier {
     function verify(
         address user
-        //bytes32 documentHash
-    ) external view returns (bool);
+    )
+        external
+        view
+        returns (
+            //bytes32 documentHash
+            bool
+        );
 }
 
 contract LanSeller is ERC721URIStorage, ReentrancyGuard {
@@ -43,13 +48,6 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
     event KYCVerified(address indexed user);
     event Withdrawal(address indexed to, uint256 amount);
     event ListingFeeUpdated(uint256 newFee);
-    event PropertyListed(
-        address indexed seller,
-        uint256 indexed tokenId,
-        uint256 price,
-        bool forSale,
-        string ipfsHash
-    );
     event PropertyBought(
         address indexed buyer,
         uint256 indexed tokenId,
@@ -59,13 +57,24 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         address indexed seller,
         uint256 indexed tokenId
     );
+    // Modified PropertyListed event
+    event PropertyListed(
+        address indexed seller,
+        uint256 indexed tokenId,
+        uint256 price,
+        bool forSale,
+        string ipfsHash
+    );
 
     mapping(address => bool) private kycVerified;
     mapping(uint256 => Property) public properties;
     mapping(address => uint256) public funds;
+    mapping(address => string) public userBasenames;
     mapping(address => bool) private _hasListed;
     mapping(uint256 => bool) public compromisedNFTs;
     mapping(uint256 => bytes32) public documentHashes;
+    mapping(uint256 => string) public propertyBasenames;
+    mapping(address => bool) public isSmartWalletConnected;
 
     modifier isKYCVerified() {
         require(kycVerified[msg.sender], "KYC not verified");
@@ -88,8 +97,13 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         return _hasListed[user];
     }
 
-    constructor(address _lstToken, address _verifier) ERC721("LanStellar Property Token", "LSPT") {
-        priceFeed = AggregatorV3Interface(0x3ec8593F930EA45ea58c968260e6e9FF53FC934f); // Sepolia price feed
+    constructor(
+        address _lstToken,
+        address _verifier
+    ) ERC721("LanStellar Property Token", "LSPT") {
+        priceFeed = AggregatorV3Interface(
+            0x3ec8593F930EA45ea58c968260e6e9FF53FC934f
+        ); // Sepolia price feed
         lstToken = IERC20(_lstToken); // Token contract
         verifier = IVerifier(_verifier);
     }
@@ -100,7 +114,8 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
     }
 
     // 2. Create a new token and list it
-    function createToken(string memory tokenURI, uint256 price, string memory ipfsHash) external isKYCVerified {
+    function createToken( string memory tokenURI, uint256 price,string memory ipfsHash
+    ) external isKYCVerified {
         tokenIdCounter++;
         uint256 newTokenId = tokenIdCounter;
 
@@ -111,7 +126,10 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         _hasListed[msg.sender] = true;
     }
 
-    function invalidateAndUpgradeNFT(uint256 tokenId,string memory newTokenURI) external onlyOwner(tokenId) {
+    function invalidateAndUpgradeNFT(
+        uint256 tokenId,
+        string memory newTokenURI
+    ) external onlyOwner(tokenId) {
         compromisedNFTs[tokenId] = true; // Mark NFT as compromised
         uint256 newTokenId = tokenIdCounter++;
         _mint(msg.sender, newTokenId); // Mint new NFT
@@ -128,7 +146,7 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         require(compromisedNFTs[tokenId], "NFT is not compromised");
         _burn(tokenId); // Burn the compromised NFT
     }
-
+   
     //List a newly created property (internal function)
 
     function listNewProperty(
@@ -136,17 +154,29 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         uint256 price,
         string memory ipfsHash
     ) public isKYCVerified {
-        properties[tokenId] = Property({
-            tokenId: tokenId,
-            seller: msg.sender,
-            price: price,
-            buyer: msg.sender,
-            forSale: true,
-            ipfsHash: ipfsHash
-        });
+        Property storage property  = properties[tokenId];
 
-        emit PropertyListed(msg.sender, tokenId, price, true, ipfsHash);
+            property.tokenId= tokenId;
+            property.seller= msg.sender;
+            property.price= price;
+            property.forSale= true;
+            property.ipfsHash=ipfsHash
+        ;
+
+        // In the listNewProperty function, emit with the Basename
+        emit PropertyListed(
+            msg.sender,
+            tokenId,
+            price,
+            true,
+            ipfsHash
+        );
     }
+    // Approve the contract to transfer the tokenId on behalf of the current owner
+function approveContractForTransfer(uint256 tokenId) external {
+    approve(address(this), tokenId); // Approving the contract to transfer tokenId
+}
+
 
     function buyProperty(
         uint256 tokenId,
@@ -155,8 +185,7 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         Property memory property = properties[tokenId];
 
         uint256 transactionFee = property.price / 100;
-        require(
-            _amount >= (property.price + transactionFee),
+        require( _amount >= (property.price + transactionFee),
             "Price plus fee not met"
         );
         require(
@@ -174,38 +203,45 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         funds[address(this)] += transactionFee; // 1% fee to marketplace
 
         properties[tokenId].forSale = false;
-        _transfer(property.buyer, msg.sender, tokenId);
+        safeTransferFrom(property.seller, msg.sender, tokenId);
 
+        properties[tokenId].seller = msg.sender;
         emit PropertySold(msg.sender, tokenId, property.price);
     }
 
     //  Update the price of a listed property
     function updatePropertyPrice(
         uint256 tokenId,
-        uint256 newPrice
+        uint256 newPrice,
+        string memory ipfsHash
     ) external onlyOwner(tokenId) {
         require(newPrice > 0, "Price must be above zero");
         properties[tokenId].price = newPrice;
+        // In the listNewProperty function, emit with the Basename
         emit PropertyListed(
             msg.sender,
             tokenId,
             newPrice,
-            properties[tokenId].forSale,
-            properties[tokenId].ipfsHash
-        );
+            true,
+            ipfsHash
+             );
     }
 
     // FUNDS MANAGEMENT
+function withdrawFunds() external nonReentrant {
+    uint256 proceeds = funds[msg.sender];
+    require(proceeds > 0, "No proceeds to withdraw");
+    funds[msg.sender] = 0;
 
-    // Withdraw funds after property sale
-    function withdrawFunds() external nonReentrant {
-        uint256 proceeds = funds[msg.sender];
-        require(proceeds > 0, "No proceeds to withdraw");
-        funds[msg.sender] = 0;
-        (bool success, ) = payable(msg.sender).call{value: proceeds}("");
-        require(success, "Transfer failed");
-        emit Withdrawal(msg.sender, proceeds);
-    }
+    // Use transfer instead of transferFrom, since the contract holds the tokens
+    require(
+        lstToken.transfer(msg.sender, proceeds),
+        "Token transfer failed"
+    );
+    emit Withdrawal(msg.sender, proceeds);
+}
+
+    
 
     // 1.1 Get Property Details
     function getProperty(
@@ -257,7 +293,7 @@ contract LanSeller is ERC721URIStorage, ReentrancyGuard {
         listingFee = _listingFee;
         emit ListingFeeUpdated(_listingFee);
     }
-        // Function to get all properties currently listed for sale
+    // Function to get all properties currently listed for sale
     function getListedProperties() external view returns (Property[] memory) {
         uint256 totalProperties = tokenIdCounter;
         uint256 listedCount = 0;
